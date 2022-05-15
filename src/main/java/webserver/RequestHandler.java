@@ -4,10 +4,11 @@ import java.io.*;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
-import model.Database;
+import db.DataBase;
 import model.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,7 +41,7 @@ public class RequestHandler extends Thread {
 
             String url = HttpRequestUtils.getUrl(line);
             Map<String, String> headers = new HashMap<String, String>();
-            String contentType = null;
+            boolean loginedValue = false;
 
             // Request Header 내용을 Map<String, String> header 변수에 삽입 처리
             while (!line.equals("")) {
@@ -49,6 +50,16 @@ public class RequestHandler extends Thread {
                 String[] headerTokens = line.split(": ");
                 if (headerTokens.length == 2) {
                     headers.put(headerTokens[0], headerTokens[1]);
+                }
+                if(headerTokens[0].contains("Cookie")){
+                    Map<String, String> cookies = HttpRequestUtils.parseCookies(headerTokens[1]);
+                    String value = cookies.get("logined");
+                    log.debug("########### loginedValue1 = {}", loginedValue);
+                    log.debug("########### value = {}", value);
+                    if(value != null){
+                        loginedValue = Boolean.parseBoolean(value);
+                        log.debug("########### loginedValue2 = {}", loginedValue);
+                    }
                 }
             }
 
@@ -62,7 +73,7 @@ public class RequestHandler extends Thread {
                 User user = new User(params.get("userId"), params.get("password"), params.get("name"), params.get("email"));
                 log.debug(user.toString());
 
-                Database.addUser(user);
+                DataBase.addUser(user);
 
                 DataOutputStream dos = new DataOutputStream(out);
                 response302Header(dos, "/index.html");
@@ -76,10 +87,10 @@ public class RequestHandler extends Thread {
                 Map<String, String> params = HttpRequestUtils.parseQueryString(requestBody);
                 log.debug("userId : {}, password : {}",params.get("userId"), params.get("password"));
 
-                // get User from Database
-                User user = Database.getUser(params.get("userId"));
+                // get User from DataBase
+                User user = DataBase.getUser(params.get("userId"));
 
-                // validation between User(database) and Client input Value
+                // validation between User(DataBase) and Client input Value
                 // result handling
                 if(user == null){
                     DataOutputStream dos = new DataOutputStream(out);
@@ -93,6 +104,27 @@ public class RequestHandler extends Thread {
                     DataOutputStream dos = new DataOutputStream(out);
                     response302HeaderWithCookie(dos, "/user/login_failed.html", "logined=failed");
                     log.debug("password Mismatch");
+                }
+            } else if(url.startsWith("/user/list")) {
+                DataOutputStream dos = new DataOutputStream(out);
+
+                if(!loginedValue){
+                    response302Header(dos, "/index.html");
+                } else {
+                    Collection<User> users = DataBase.findAll();
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("<table border='1'>");
+                    for(User user : users){
+                        sb.append("<tr>");
+                        sb.append("<td>" + user.getUserId() + "</td>");
+                        sb.append("<td>" + user.getName() + "</td>");
+                        sb.append("<td>" + user.getEmail() + "</td>");
+                        sb.append("</tr>");
+                    }
+                    sb.append("</table>");
+                    byte[] body = sb.toString().getBytes();
+                    response200Header(dos, body.length);
+                    responseBody(dos, body);
                 }
             } else if(url.endsWith(".css")) {
                 DataOutputStream dos = new DataOutputStream(out);
